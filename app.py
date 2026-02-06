@@ -11,23 +11,21 @@ st.set_page_config(page_title="ZackBerry Converter", page_icon="💎", layout="w
 st.markdown("""
     <style>
     .stApp { background: radial-gradient(circle, #001d3d 0%, #000814 100%); }
-    h1 { color: #00d4ff !important; text-shadow: 0 0 15px #00d4ff; text-align: center; }
-    .stButton>button { background-color: #003566 !important; color: #00d4ff !important; border: 2px solid #00d4ff !important; }
+    h1 { color: #00d4ff !important; text-shadow: 0 0 15px #00d4ff; text-align: center; font-weight: 800; }
+    .stButton>button { background-color: #003566 !important; color: #00d4ff !important; border: 2px solid #00d4ff !important; width: 100%; font-weight: bold; }
     </style>
     """, unsafe_allow_html=True)
 
-st.title("💎 ZackBerry Ultimate Converter")
+st.title("💎 ZackBerry Converter")
 
 def process_bbmodel(file_obj):
     filename_base = os.path.splitext(file_obj.name)[0]
     bb_data = json.load(file_obj)
     
-    # 1. UV RESOLUTION
+    # 1. RESOLUTION & METADATA
     res_x = bb_data.get('resolution', {}).get('width', 16)
     res_y = bb_data.get('resolution', {}).get('height', 16)
     
-    # 2. GME CONFIG INITIALIZATION
-    # This matches the 'geyser_model_engine_packer.js' requirements
     model_config = {
         "head_rotation": True,
         "material": "entity_alphatest_change_color_one_sided",
@@ -37,6 +35,7 @@ def process_bbmodel(file_obj):
         "anim_textures": {}
     }
 
+    # 2. BONE & CUBE COMPILATION (Crucial for GME)
     element_map = {el['uuid']: el for el in bb_data.get('elements', []) if 'uuid' in el}
     bedrock_bones = []
     
@@ -44,8 +43,6 @@ def process_bbmodel(file_obj):
         for node in nodes:
             if isinstance(node, dict) and 'name' in node:
                 bone_name = node['name']
-                
-                # BINDING BONES: Crucial for GeyserModelEngine to track movements
                 model_config["binding_bones"][bone_name] = bone_name
                 
                 bone = {
@@ -53,8 +50,6 @@ def process_bbmodel(file_obj):
                     "pivot": node.get('origin', [0, 0, 0]),
                     "cubes": []
                 }
-                
-                # Bedrock rotation inversion
                 if 'rotation' in node:
                     bone["rotation"] = [node['rotation'][0], -node['rotation'][1], -node['rotation'][2]]
 
@@ -73,59 +68,62 @@ def process_bbmodel(file_obj):
 
     compile_bones(bb_data.get('outliner', []))
 
-    # 3. VISIBILITY BOX MATH (Prevents model vanishing)
-    coords = []
-    for el in bb_data.get('elements', []):
-        coords.extend(el.get('from', []))
-        coords.extend(el.get('to', []))
-    max_reach = max([abs(x) for x in coords]) if coords else 16
-    v_width = max(3, int(((max_reach + 8) * 2) / 16) + 1)
+    # 3. COMPILING ANIMATIONS (This adds weight to the file)
+    animations = {}
+    if 'animations' in bb_data:
+        for ani in bb_data['animations']:
+            ani_name = ani.get('name', 'animation')
+            # Stripping internal Blockbench data for Bedrock compatibility
+            animations[ani_name] = {
+                "loop": ani.get('loop', 'loop'),
+                "animation_length": ani.get('length', 0),
+                "bones": ani.get('bones', {})
+            }
 
-    # 4. PACKING
+    # 4. ZIP PACKING WITH TEXTURE EXTRACTION
     zip_buffer = io.BytesIO()
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_f:
         folder = f"{filename_base}/"
         
-        # Textures
+        # Texture Processing
         if 'textures' in bb_data:
             for tex in bb_data['textures']:
                 t_name = tex.get('name', 'texture').replace('.png', '')
                 source = tex.get('source', '')
-                if "," in source: source = source.split(",")[1]
-                if source:
-                    img_data = base64.b64decode(source)
+                if "," in source:
+                    img_data = base64.b64decode(source.split(",")[1])
                     img = Image.open(io.BytesIO(img_data))
                     model_config["per_texture_uv_size"][t_name] = [img.width, img.height]
                     zip_f.writestr(f"{folder}{t_name}.png", img_data)
 
-        # Geometry
+        # Geometry Identifier
         geo = {
             "format_version": "1.12.0",
             "minecraft:geometry": [{
                 "description": {
                     "identifier": f"geometry.{filename_base}",
                     "texture_width": res_x, "texture_height": res_y,
-                    "visible_bounds_width": v_width, "visible_bounds_height": v_width,
-                    "visible_bounds_offset": [0, v_width/2, 0]
+                    "visible_bounds_width": 10, "visible_bounds_height": 10,
+                    "visible_bounds_offset": [0, 5, 0]
                 },
                 "bones": bedrock_bones
             }]
         }
-        zip_f.writestr(f"{folder}{filename_base}.geo.json", json.dumps(geo, indent=4))
         
-        # Animations & Config
-        zip_f.writestr(f"{folder}{filename_base}.animation.json", json.dumps({"format_version":"1.8.0","animations":{}}, indent=4))
+        zip_f.writestr(f"{folder}{filename_base}.geo.json", json.dumps(geo, indent=4))
+        zip_f.writestr(f"{folder}{filename_base}.animation.json", json.dumps({"format_version":"1.8.0","animations":animations}, indent=4))
         zip_f.writestr(f"{folder}config.json", json.dumps(model_config, indent=4))
 
     return filename_base, zip_buffer.getvalue()
 
-uploaded_files = st.file_uploader("Upload .bbmodel files", type=['bbmodel'], accept_multiple_files=True)
+files = st.file_uploader("Upload .bbmodel files", type=['bbmodel'], accept_multiple_files=True)
 
-if uploaded_files:
-    if st.button(f"🚀 CONVERT {len(uploaded_files)} MODELS"):
+if files:
+    if st.button(f"🚀 CONVERT {len(files)} MODELS"):
         master_zip = io.BytesIO()
         with zipfile.ZipFile(master_zip, "w") as master:
-            for f in uploaded_files:
+            for f in files:
                 name, data = process_bbmodel(f)
                 master.writestr(f"{name}.zip", data)
         st.download_button("📥 Download", master_zip.getvalue(), "ZackBerry_Bundle.zip")
+
