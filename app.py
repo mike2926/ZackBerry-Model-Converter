@@ -141,7 +141,7 @@ def process_bbmodel(file_obj):
     return filename_base, zip_buffer.getvalue()
 
 # --- APP LAYOUT ---
-uploaded = st.file_uploader("Upload Townsfolk .bbmodel", type=['bbmodel'], accept_multiple_files=True)
+uploaded = st.file_uploader("Upload .bbmodel", type=['bbmodel'], accept_multiple_files=True)
 if uploaded:
     if st.button(f"🚀 CONVERT {len(uploaded)} MODELS"):
         master_zip = io.BytesIO()
@@ -150,3 +150,4 @@ if uploaded:
                 name, data = process_bbmodel(f)
                 master.writestr(f"{name}.zip", data)
         st.download_button("📥 Download ZackBerry Pack", master_zip.getvalue(), "ZackBerry_DeepFix.zip")
+
