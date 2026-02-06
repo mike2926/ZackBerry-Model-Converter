@@ -6,72 +6,64 @@ import base64
 from PIL import Image
 import os
 
-# --- DESIGN & BRANDING ---
+# --- DESIGN: GLOWING BLUE NEON UI ---
 st.set_page_config(page_title="ZackBerry Converter", page_icon="💎", layout="wide")
 
-# Custom CSS for the Glowing Blue Background and Neon UI
 st.markdown("""
     <style>
-    /* Main background with a deep blue glow */
+    /* Glowing Blue Radial Background */
     .stApp {
-        background: radial-gradient(circle, #001d3d 0%, #000814 100%);
+        background: radial-gradient(circle at center, #001d3d 0%, #000814 100%);
         color: white;
     }
     
-    /* Glowing Title */
+    /* Neon Glowing Title */
     h1 {
-        color: #00d4ff !important;
-        text-shadow: 0 0 10px #00d4ff, 0 0 20px #00d4ff, 0 0 40px #00d4ff;
+        color: #ffffff !important;
         text-align: center;
         font-weight: 800;
+        text-shadow: 0 0 10px #00d4ff, 0 0 20px #00d4ff, 0 0.40px #00d4ff;
         text-transform: uppercase;
-        letter-spacing: 2px;
+        letter-spacing: 3px;
+        padding-top: 20px;
     }
 
-    /* File Uploader styling */
-    .stFileUploader section {
-        background-color: rgba(0, 29, 61, 0.5) !important;
-        border: 2px dashed #00d4ff !important;
-        border-radius: 15px;
-    }
-
-    /* Glowing Button */
+    /* Glowing Custom Button */
     .stButton>button {
-        background-color: #003566 !important;
+        background-color: #000814 !important;
         color: #00d4ff !important;
         border: 2px solid #00d4ff !important;
-        border-radius: 20px;
+        border-radius: 12px;
         font-weight: bold;
         width: 100%;
-        box-shadow: 0 0 10px #00d4ff;
-        transition: 0.3s;
+        box-shadow: 0 0 15px rgba(0, 212, 255, 0.4);
+        transition: 0.3s ease-in-out;
     }
     
     .stButton>button:hover {
-        box-shadow: 0 0 25px #00d4ff, 0 0 50px #00d4ff;
-        transform: scale(1.02);
-        color: white !important;
-        border-color: white !important;
+        box-shadow: 0 0 30px #00d4ff;
+        background-color: #00d4ff !important;
+        color: #000814 !important;
+        transform: translateY(-2px);
     }
 
-    /* Download button specific glow */
-    .stDownloadButton>button {
-        background: linear-gradient(45deg, #0077b6, #00d4ff) !important;
-        color: white !important;
-        border: none !important;
-        box-shadow: 0 0 15px #00d4ff;
+    /* File Uploader Style */
+    .stFileUploader section {
+        background-color: rgba(0, 29, 61, 0.3) !important;
+        border: 1px solid #00d4ff !important;
+        border-radius: 10px;
     }
     </style>
     """, unsafe_allow_html=True)
 
 st.title("ZackBerry Converter")
 
-# --- CONVERTER LOGIC (UNCHANGED) ---
+# --- CONVERTER ENGINE (FIXED FOR BEDROCK VISIBILITY) ---
 def process_bbmodel(file_obj):
     filename_base = os.path.splitext(file_obj.name)[0]
     bb_data = json.load(file_obj)
     
-    # 1. FIXING BINDING BONES STRUCTURE
+    # Identify the main texture to prevent invisible mapping
     primary_tex = "default"
     if 'textures' in bb_data and len(bb_data['textures']) > 0:
         primary_tex = bb_data['textures'][0].get('name', 'default').replace('.png', '')
@@ -81,7 +73,7 @@ def process_bbmodel(file_obj):
         "material": "entity_alphatest_change_color_one_sided",
         "blend_transition": True,
         "per_texture_uv_size": {},
-        "binding_bones": { primary_tex: [] }, # Must be a list under the texture name
+        "binding_bones": { primary_tex: [] }, # Grouping bones in a list is required
         "anim_textures": {}
     }
 
@@ -92,11 +84,10 @@ def process_bbmodel(file_obj):
         for node in nodes:
             if isinstance(node, dict) and 'name' in node:
                 bone_name = node['name']
+                # Correctly append bone to the list under the texture key
                 model_config["binding_bones"][primary_tex].append(bone_name)
                 
                 bone = {"name": bone_name, "pivot": node.get('origin', [0, 0, 0]), "cubes": []}
-                
-                # Correction for Bedrock axis
                 if 'rotation' in node:
                     bone["rotation"] = [node['rotation'][0], -node['rotation'][1], -node['rotation'][2]]
 
@@ -104,7 +95,7 @@ def process_bbmodel(file_obj):
                     if isinstance(child, str) and child in elements:
                         c = elements[child]
                         size = [round(c['to'][0]-c['from'][0], 4), round(c['to'][1]-c['from'][1], 4), round(c['to'][2]-c['from'][2], 4)]
-                        # UV FIX
+                        # UV Alignment Fix
                         uv_origin = c.get('uv_offset', [0, 0])
                         bone["cubes"].append({"origin": c['from'], "size": size, "uv": uv_origin})
                     elif isinstance(child, dict):
@@ -116,7 +107,7 @@ def process_bbmodel(file_obj):
     with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zip_f:
         path = f"{filename_base}/"
         
-        # Texture Base64 Extraction
+        # Base64 Textures
         for tex in bb_data.get('textures', []):
             t_name = tex.get('name', 'texture').replace('.png', '')
             source = tex.get('source', '')
@@ -126,7 +117,7 @@ def process_bbmodel(file_obj):
                 img = Image.open(io.BytesIO(img_data))
                 model_config["per_texture_uv_size"][t_name] = [img.width, img.height]
 
-        # Geometry Identifier Correction
+        # Sync Geometry ID with Filename
         geo = {
             "format_version": "1.12.0",
             "minecraft:geometry": [{
@@ -142,15 +133,15 @@ def process_bbmodel(file_obj):
         }
         
         zip_f.writestr(f"{path}{filename_base}.geo.json", json.dumps(geo, indent=4))
-        # Animations (Cleaned)
+        # Animation Stitching
         anis = {a.get('name'): {"loop": True, "bones": a.get('bones', {})} for a in bb_data.get('animations', [])}
         zip_f.writestr(f"{path}{filename_base}.animation.json", json.dumps({"format_version":"1.8.0", "animations":anis}, indent=4))
         zip_f.writestr(f"{path}config.json", json.dumps(model_config, indent=4))
 
     return filename_base, zip_buffer.getvalue()
 
-# --- APP INTERFACE ---
-uploaded = st.file_uploader("Upload .bbmodel files", type=['bbmodel'], accept_multiple_files=True)
+# --- APP LAYOUT ---
+uploaded = st.file_uploader("Upload Townsfolk .bbmodel", type=['bbmodel'], accept_multiple_files=True)
 if uploaded:
     if st.button(f"🚀 CONVERT {len(uploaded)} MODELS"):
         master_zip = io.BytesIO()
